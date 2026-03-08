@@ -30,11 +30,19 @@ WORKDIR /app/bridge
 RUN npm install && npm run build
 WORKDIR /app
 
-# Create config directory
-RUN mkdir -p /root/.nanobot
+# Create a non-root runtime user that matches the common first user on Linux hosts.
+RUN groupadd --gid 1000 nanobot && \
+    useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash nanobot && \
+    mkdir -p /home/nanobot/.nanobot && \
+    chown -R nanobot:nanobot /app /home/nanobot
 
 # Gateway default port
 EXPOSE 18790
+
+ENV HOME=/home/nanobot
+ENV PATH=/home/nanobot/.local/bin:${PATH}
+
+USER nanobot
 
 ENTRYPOINT ["nanobot"]
 CMD ["status"]

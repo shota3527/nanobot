@@ -2,8 +2,16 @@ x-common-config: &common-config
   build:
     context: .
     dockerfile: Dockerfile
+  user: "1000:1000"
+  init: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev
   volumes:
-    - ~/.nanobot:/root/.nanobot
+    - ~/.nanobot:/home/nanobot/.nanobot
 
 services:
   nanobot-gateway:
