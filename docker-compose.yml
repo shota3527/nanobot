@@ -8,10 +8,8 @@ x-common-config: &common-config
     - ALL
   security_opt:
     - no-new-privileges:true
-  tmpfs:
-    - /tmp:rw,noexec,nosuid,nodev
   volumes:
-    - ~/.nanobot:/home/nanobot/.nanobot
+    - ~/nanobot_workspace:/home/nanobot/.nanobot
 
 services:
   nanobot-gateway:
@@ -21,15 +19,7 @@ services:
     restart: unless-stopped
     ports:
       - 18790:18790
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-  
+
   nanobot-cli:
     <<: *common-config
     profiles:
