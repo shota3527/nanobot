@@ -122,8 +122,16 @@ class MemoryStore:
                 tool_choice={"type": "function", "function": {"name": "save_memory"}},
             )
 
+            if response.finish_reason == "error":
+                logger.error("Memory consolidation failed before tool call: {}", (response.content or "")[:500])
+                return False
+
             if not response.has_tool_calls:
-                logger.warning("Memory consolidation: LLM did not call save_memory, skipping")
+                logger.warning(
+                    "Memory consolidation: LLM did not call save_memory, finish_reason={}, content={}",
+                    response.finish_reason,
+                    (response.content or "")[:500],
+                )
                 return False
 
             args = response.tool_calls[0].arguments
