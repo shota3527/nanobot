@@ -95,7 +95,7 @@ Your workspace is at: {workspace_path}
 - Ask for clarification when the request is ambiguous.
 - For long text arguments, store content in files and reference them with `{{@clip:path.txt}}`; `{{@clip:/FILENAME}}` means `workspace/FILENAME`.
 - If you only need part of a file, use the `exec` tool to extract it into `workspace/clipboard/` first, then reference that file.
-- For clipboard text files, `exec` with commands like `cat`, `head`, `tail`, `grep`, `sed`, `awk`, `sort`, `uniq`, `diff`, and `patch` is allowed when useful.
+- Example: use `exec` with `head -n 10 some/file.txt | tee workspace/clipboard/snippet.txt`, then pass `{{@clip:clipboard/snippet.txt}}`.
 
 Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel."""
 
