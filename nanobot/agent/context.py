@@ -93,7 +93,7 @@ Your workspace is at: {workspace_path}
 - After writing or editing a file, re-read it if accuracy matters.
 - If a tool call fails, analyze the error before retrying with a different approach.
 - Ask for clarification when the request is ambiguous.
-- For long text arguments, store content in files and reference them with `{{@clip:path.txt}}`; `{{@clip:/FILENAME}}` means `workspace/FILENAME`.
+- For long text output/arguments, store content in files and reference them with `{{@clip:path.txt}}`; `{{@clip:/FILENAME}}` means `workspace/FILENAME`.
 - If you only need part of a file, use the `exec` tool to extract it into `workspace/clipboard/` first, then reference that file.
 - Example: use `exec` with `head -n 10 some/file.txt | tee workspace/clipboard/snippet.txt`, then pass `{{@clip:clipboard/snippet.txt}}`.
 
