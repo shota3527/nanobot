@@ -10,6 +10,8 @@ x-common-config: &common-config
     - no-new-privileges:true
   volumes:
     - ~/nanobot_workspace:/home/nanobot/.nanobot
+    - ~/nanobot_workspace/media:/home/nanobot/.nanobot/workspace/media
+    - ~/nanobot_workspace/history:/home/nanobot/.nanobot/workspace/history
 
 services:
   nanobot-gateway:

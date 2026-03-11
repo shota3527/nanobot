@@ -20,6 +20,7 @@ from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTo
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
+from nanobot.agent.tools.tool_arguments import ClipboardReferenceExpander
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
@@ -82,6 +83,10 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self._clipboard_expander = ClipboardReferenceExpander(
+            workspace=workspace,
+            restrict_to_workspace=restrict_to_workspace,
+        )
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
@@ -213,8 +218,8 @@ class AgentLoop:
                         "type": "function",
                         "function": {
                             "name": tc.name,
-                            "arguments": json.dumps(tc.arguments, ensure_ascii=False)
-                        }
+                            "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                        },
                     }
                     for tc in response.tool_calls
                 ]
@@ -226,6 +231,15 @@ class AgentLoop:
 
                 for tool_call in response.tool_calls:
                     tools_used.append(tool_call.name)
+                    try:
+                        self._clipboard_expander.expand_tool_call(tool_call)
+                    except (FileNotFoundError, OSError, ValueError) as e:
+                        error = f"Error expanding clipboard reference in tool arguments: {e}"
+                        logger.warning("Tool call argument expansion failed for {}: {}", tool_call.name, error)
+                        messages = self.context.add_tool_result(
+                            messages, tool_call.id, tool_call.name, error,
+                        )
+                        continue
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
@@ -234,6 +248,13 @@ class AgentLoop:
                     )
             else:
                 clean = self._strip_think(response.content)
+                if clean:
+                    try:
+                        expanded = self._clipboard_expander.expand(clean)
+                        if isinstance(expanded, str):
+                            clean = expanded
+                    except (FileNotFoundError, OSError, ValueError):
+                        pass
                 # Don't persist error responses to session history — they can
                 # poison the context and cause permanent 400 loops (#1303).
                 if response.finish_reason == "error":

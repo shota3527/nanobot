@@ -11,6 +11,7 @@ from loguru import logger
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
+from nanobot.agent.tools.tool_arguments import ClipboardReferenceExpander
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
@@ -47,6 +48,10 @@ class SubagentManager:
         self.web_proxy = web_proxy
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
+        self._clipboard_expander = ClipboardReferenceExpander(
+            workspace=workspace,
+            restrict_to_workspace=restrict_to_workspace,
+        )
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
 
@@ -153,6 +158,23 @@ class SubagentManager:
 
                     # Execute tools
                     for tool_call in response.tool_calls:
+                        try:
+                            self._clipboard_expander.expand_tool_call(tool_call)
+                        except (FileNotFoundError, OSError, ValueError) as e:
+                            error = f"Error expanding clipboard reference in tool arguments: {e}"
+                            logger.warning(
+                                "Subagent [{}] tool argument expansion failed for {}: {}",
+                                task_id,
+                                tool_call.name,
+                                error,
+                            )
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": tool_call.name,
+                                "content": error,
+                            })
+                            continue
                         args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                         logger.debug("Subagent [{}] executing: {} with arguments: {}", task_id, tool_call.name, args_str)
                         result = await tools.execute(tool_call.name, tool_call.arguments)
