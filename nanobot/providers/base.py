@@ -195,13 +195,10 @@ class LLMProvider(ABC):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         model: str | None = None,
-        max_tokens: int = 4096,
-        temperature: float = 0.7,
-        reasoning_effort: str | None = None,
-        tool_choice: str | dict | None = None,
         max_tokens: object = _SENTINEL,
         temperature: object = _SENTINEL,
         reasoning_effort: object = _SENTINEL,
+        tool_choice: str | dict | None = None,
     ) -> LLMResponse:
         """Call chat() with retry on transient provider failures.
 

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from nanobot.agent.loop import AgentLoop
-from nanobot.agent.tools.tool_arguments import expand_clipboard_references
+from nanobot.agent.tools.tool_arguments import ClipboardReferenceExpander
 from nanobot.providers.base import LLMResponse, ToolCallRequest
 
 
@@ -17,7 +17,7 @@ def _make_loop(tmp_path: Path) -> AgentLoop:
     return AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model", memory_window=10)
 
 
-def test_expand_clipboard_references_replaces_nested_strings(tmp_path: Path) -> None:
+def test_clipboard_reference_expander_replaces_nested_strings(tmp_path: Path) -> None:
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir()
     (notes_dir / "note.txt").write_text("hello\nworld", encoding="utf-8")
@@ -28,7 +28,7 @@ def test_expand_clipboard_references_replaces_nested_strings(tmp_path: Path) -> 
         "count": 3,
     }
 
-    expanded = expand_clipboard_references(arguments, tmp_path)
+    expanded = ClipboardReferenceExpander(workspace=tmp_path).expand(arguments)
 
     assert expanded == {
         "path": "docs/hello\nworld.md",
@@ -37,40 +37,53 @@ def test_expand_clipboard_references_replaces_nested_strings(tmp_path: Path) -> 
     }
 
 
-def test_expand_clipboard_references_supports_workspace_root_shorthand(tmp_path: Path) -> None:
+def test_clipboard_reference_expander_supports_workspace_root_shorthand(tmp_path: Path) -> None:
     (tmp_path / "ROOT.txt").write_text("root content", encoding="utf-8")
 
-    expanded = expand_clipboard_references(
-        {"text": "Value: {{@clip:/ROOT.txt}}"},
-        tmp_path,
+    expanded = ClipboardReferenceExpander(workspace=tmp_path).expand(
+        {"text": "Value: {{@clip:/ROOT.txt}}"}
     )
 
     assert expanded == {"text": "Value: root content"}
 
 
-def test_expand_clipboard_references_allows_absolute_path_when_unrestricted(tmp_path: Path) -> None:
+def test_clipboard_reference_expander_allows_absolute_path_when_unrestricted(tmp_path: Path) -> None:
     external = tmp_path.parent / f"{tmp_path.name}_external.txt"
     external.write_text("external", encoding="utf-8")
     try:
-        expanded = expand_clipboard_references(
-            {"text": f"{{{{@clip:{external}}}}}"},
-            tmp_path,
+        expanded = ClipboardReferenceExpander(workspace=tmp_path).expand(
+            {"text": f"{{{{@clip:{external}}}}}"}
         )
         assert expanded == {"text": "external"}
     finally:
         external.unlink(missing_ok=True)
 
 
-def test_expand_clipboard_references_blocks_outside_workspace_when_restricted(tmp_path: Path) -> None:
+def test_clipboard_reference_expander_prefers_relative_path_before_absolute_path(tmp_path: Path) -> None:
+    relative_target = tmp_path / "tmp" / "nanobot-tool-arguments-clip.txt"
+    relative_target.parent.mkdir()
+    relative_target.write_text("workspace copy", encoding="utf-8")
+
+    absolute_target = Path("/tmp/nanobot-tool-arguments-clip.txt")
+    absolute_target.write_text("absolute copy", encoding="utf-8")
+    try:
+        expanded = ClipboardReferenceExpander(workspace=tmp_path).expand(
+            {"text": "{{@clip:/tmp/nanobot-tool-arguments-clip.txt}}"}
+        )
+        assert expanded == {"text": "workspace copy"}
+    finally:
+        absolute_target.unlink(missing_ok=True)
+
+
+def test_clipboard_reference_expander_blocks_outside_workspace_when_restricted(tmp_path: Path) -> None:
     external = tmp_path.parent / f"{tmp_path.name}_blocked.txt"
     external.write_text("blocked", encoding="utf-8")
     try:
         with pytest.raises(ValueError, match="outside allowed directory"):
-            expand_clipboard_references(
-                {"text": f"{{{{@clip:{external}}}}}"},
-                tmp_path,
+            ClipboardReferenceExpander(
+                workspace=tmp_path,
                 restrict_to_workspace=True,
-            )
+            ).expand({"text": f"{{{{@clip:{external}}}}}"})
     finally:
         external.unlink(missing_ok=True)
 
