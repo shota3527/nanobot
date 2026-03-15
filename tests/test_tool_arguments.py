@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from nanobot.agent.loop import AgentLoop
-from nanobot.agent.tools.tool_arguments import ClipboardReferenceExpander
+from nanobot.agent.tools.clip_references import ClipboardReferenceExpander
 from nanobot.providers.base import LLMResponse, ToolCallRequest
 
 
@@ -23,16 +23,16 @@ def test_clipboard_reference_expander_replaces_nested_strings(tmp_path: Path) ->
     (notes_dir / "note.txt").write_text("hello\nworld", encoding="utf-8")
 
     arguments = {
-        "path": "docs/{{@clip:notes/note.txt}}.md",
-        "nested": ["prefix {{@clip:notes/note.txt}} suffix", {"text": "{{@clip:notes/note.txt}}"}],
+        "path": "docs\n{@clip:notes/note.txt}\n.md",
+        "nested": ["prefix\n{@clip:notes/note.txt}\nsuffix", {"text": "{@clip:notes/note.txt}"}],
         "count": 3,
     }
 
     expanded = ClipboardReferenceExpander(workspace=tmp_path).expand(arguments)
 
     assert expanded == {
-        "path": "docs/hello\nworld.md",
-        "nested": ["prefix hello\nworld suffix", {"text": "hello\nworld"}],
+        "path": "docs\nhello\nworld\n.md",
+        "nested": ["prefix\nhello\nworld\nsuffix", {"text": "hello\nworld"}],
         "count": 3,
     }
 
@@ -41,10 +41,10 @@ def test_clipboard_reference_expander_supports_workspace_root_shorthand(tmp_path
     (tmp_path / "ROOT.txt").write_text("root content", encoding="utf-8")
 
     expanded = ClipboardReferenceExpander(workspace=tmp_path).expand(
-        {"text": "Value: {{@clip:/ROOT.txt}}"}
+        {"text": "Value\n{@clip:/ROOT.txt}"}
     )
 
-    assert expanded == {"text": "Value: root content"}
+    assert expanded == {"text": "Value\nroot content"}
 
 
 def test_clipboard_reference_expander_allows_absolute_path_when_unrestricted(tmp_path: Path) -> None:
@@ -52,7 +52,7 @@ def test_clipboard_reference_expander_allows_absolute_path_when_unrestricted(tmp
     external.write_text("external", encoding="utf-8")
     try:
         expanded = ClipboardReferenceExpander(workspace=tmp_path).expand(
-            {"text": f"{{{{@clip:{external}}}}}"}
+            {"text": f"{{@clip:{external}}}"}
         )
         assert expanded == {"text": "external"}
     finally:
@@ -68,11 +68,33 @@ def test_clipboard_reference_expander_prefers_relative_path_before_absolute_path
     absolute_target.write_text("absolute copy", encoding="utf-8")
     try:
         expanded = ClipboardReferenceExpander(workspace=tmp_path).expand(
-            {"text": "{{@clip:/tmp/nanobot-tool-arguments-clip.txt}}"}
+            {"text": "{@clip:/tmp/nanobot-tool-arguments-clip.txt}"}
         )
         assert expanded == {"text": "workspace copy"}
     finally:
         absolute_target.unlink(missing_ok=True)
+
+
+def test_clipboard_reference_expander_ignores_leading_work_dir_when_needed(tmp_path: Path) -> None:
+    workspace = tmp_path / "work_dir"
+    workspace.mkdir()
+    (workspace / "note.txt").write_text("inside work_dir", encoding="utf-8")
+
+    expanded = ClipboardReferenceExpander(workspace=workspace).expand(
+        {"text": "{@clip:work_dir/note.txt}"}
+    )
+
+    assert expanded == {"text": "inside work_dir"}
+
+
+def test_clipboard_reference_expander_tolerates_spaces_inside_marker(tmp_path: Path) -> None:
+    (tmp_path / "note.txt").write_text("spaced marker", encoding="utf-8")
+
+    expanded = ClipboardReferenceExpander(workspace=tmp_path).expand(
+        {"text": "{ @clip: note.txt }"}
+    )
+
+    assert expanded == {"text": "spaced marker"}
 
 
 def test_clipboard_reference_expander_blocks_outside_workspace_when_restricted(tmp_path: Path) -> None:
@@ -83,7 +105,7 @@ def test_clipboard_reference_expander_blocks_outside_workspace_when_restricted(t
             ClipboardReferenceExpander(
                 workspace=tmp_path,
                 restrict_to_workspace=True,
-            ).expand({"text": f"{{{{@clip:{external}}}}}"})
+            ).expand({"text": f"{{@clip:{external}}}"})
     finally:
         external.unlink(missing_ok=True)
 
@@ -98,7 +120,7 @@ async def test_run_agent_loop_expands_clipboard_references_before_tool_execute(t
     tool_call = ToolCallRequest(
         id="call1",
         name="write_file",
-        arguments={"path": "out.txt", "content": "Before {{@clip:snippets/snippet.txt}} after"},
+        arguments={"path": "out.txt", "content": "Before\n{@clip:snippets/snippet.txt}\nafter"},
     )
     calls = iter([
         LLMResponse(content="", tool_calls=[tool_call]),
@@ -113,8 +135,8 @@ async def test_run_agent_loop_expands_clipboard_references_before_tool_execute(t
     assert final_content == "Done"
     loop.tools.execute.assert_awaited_once_with(
         "write_file",
-        {"path": "out.txt", "content": "Before expanded text after"},
+        {"path": "out.txt", "content": "Before\nexpanded text\nafter"},
     )
     assert messages[0]["tool_calls"][0]["function"]["arguments"] == (
-        '{"path": "out.txt", "content": "Before expanded text after"}'
+        '{"path": "out.txt", "content": "Before\\nexpanded text\\nafter"}'
     )
