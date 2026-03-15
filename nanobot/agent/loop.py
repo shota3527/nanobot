@@ -56,6 +56,7 @@ class AgentLoop:
         model: str | None = None,
         max_iterations: int = 40,
         context_window_tokens: int = 65_536,
+        tool_result_max_bytes: int | None = None,
         web_search_config: WebSearchConfig | None = None,
         web_proxy: str | None = None,
         exec_config: ExecToolConfig | None = None,
@@ -84,7 +85,10 @@ class AgentLoop:
             restrict_to_workspace=restrict_to_workspace,
         )
 
-        self.context = ContextBuilder(workspace)
+        self.context = ContextBuilder(
+            workspace,
+            tool_result_max_bytes=tool_result_max_bytes,
+        )
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
         self.subagents = SubagentManager(

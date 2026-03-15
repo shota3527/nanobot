@@ -71,3 +71,18 @@ def test_runtime_context_is_separate_untrusted_user_message(tmp_path) -> None:
     assert "Channel: cli" in user_content
     assert "Chat ID: direct" in user_content
     assert "Return exactly: OK" in user_content
+
+
+def test_add_tool_result_truncates_middle_to_tool_limit(tmp_path) -> None:
+    workspace = _make_workspace(tmp_path)
+    builder = ContextBuilder(workspace, tool_result_max_bytes=120)
+    messages: list[dict[str, str]] = []
+    content = "A" * 80 + "B" * 80
+
+    builder.add_tool_result(messages, "call_1", "read_file", content)
+
+    stored = messages[0]["content"]
+    assert len(stored.encode("utf-8")) > 120
+    assert "Tool output truncated in the middle" in stored
+    assert stored.startswith("A" * 60)
+    assert stored.endswith("B" * 60)

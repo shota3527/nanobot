@@ -32,6 +32,28 @@ def test_load_config_keeps_max_tokens_and_warns_on_legacy_memory_window(tmp_path
     assert config.agents.defaults.should_warn_deprecated_memory_window is True
 
 
+def test_load_config_reads_tool_result_max_bytes_alias(tmp_path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "agents": {
+                    "defaults": {
+                        "maxTokens": 1234,
+                        "toolResultMaxBytes": 5678,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.agents.defaults.max_tokens == 1234
+    assert config.agents.defaults.tool_result_max_bytes == 5678
+
+
 def test_save_config_writes_context_window_tokens_but_not_memory_window(tmp_path) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(

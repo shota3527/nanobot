@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
 from nanobot.utils.helpers import build_assistant_message, detect_image_mime
@@ -18,11 +20,15 @@ class ContextBuilder:
 
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"]
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
+    _TOOL_RESULT_TRUNCATION_NOTICE = (
+        "\n\n[Tool output truncated in the middle. You are seeing the beginning and end only. If the missing section matters, read or fetch a smaller portion.]\n\n"
+    )
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, tool_result_max_bytes: int | None = None):
         self.workspace = workspace
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
+        self.tool_result_max_bytes = tool_result_max_bytes
 
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills."""
@@ -174,8 +180,43 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         tool_call_id: str, tool_name: str, result: str,
     ) -> list[dict[str, Any]]:
         """Add a tool result to the message list."""
-        messages.append({"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": result})
+        content = self._truncate_tool_result(result)
+        messages.append({"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": content})
         return messages
+
+    def _truncate_tool_result(self, result: str) -> str:
+        """Trim oversized tool output by keeping byte-limited head/tail excerpts."""
+        limit = self.tool_result_max_bytes
+        size = len(result.encode("utf-8"))
+        if not limit or limit <= 0 or size <= limit:
+            return result
+
+        head_size = limit // 2
+        tail_size = limit - head_size
+        head_text = self._take_prefix_by_bytes(result, head_size)
+        tail_text = self._take_suffix_by_bytes(result, tail_size)
+        logger.info("Tool result truncated: original_bytes={}, excerpt_bytes={}", size, limit)
+        return head_text + self._TOOL_RESULT_TRUNCATION_NOTICE + tail_text
+
+    @staticmethod
+    def _take_prefix_by_bytes(text: str, byte_limit: int) -> str:
+        """Return the largest valid UTF-8 prefix whose encoded size is within byte_limit."""
+        if byte_limit <= 0:
+            return ""
+        encoded = text.encode("utf-8")
+        if len(encoded) <= byte_limit:
+            return text
+        return encoded[:byte_limit].decode("utf-8", errors="ignore")
+
+    @staticmethod
+    def _take_suffix_by_bytes(text: str, byte_limit: int) -> str:
+        """Return the largest valid UTF-8 suffix whose encoded size is within byte_limit."""
+        if byte_limit <= 0:
+            return ""
+        encoded = text.encode("utf-8")
+        if len(encoded) <= byte_limit:
+            return text
+        return encoded[-byte_limit:].decode("utf-8", errors="ignore")
 
     def add_assistant_message(
         self, messages: list[dict[str, Any]],
