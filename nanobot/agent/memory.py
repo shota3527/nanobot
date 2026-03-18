@@ -34,8 +34,8 @@ _SAVE_MEMORY_TOOL = [
                     },
                     "memory_update": {
                         "type": "string",
-                        "description": "Full updated long-term memory as markdown. Include all existing "
-                        "facts plus new ones. Return unchanged if nothing new.",
+                        "description": "Full updated long-term memory as markdown. Keep only information that is likely to matter in future conversations:"
+                        "durable, high-value facts, recent events, ongoing plans."
                     },
                 },
                 "required": ["history_entry", "memory_update"],
