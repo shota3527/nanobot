@@ -103,8 +103,10 @@ Your workspace is at: {workspace_path}
 - For long message/text output/arguments (e.g. >50 lines), store content in files and reference them by putting only `{{@clip:path.txt}}` on its own line. `{{@clip:/FILENAME}}` means `FILENAME`.
 - If you only need part of a file, use the `exec` tool to extract it into `clipboard/` first, then reference that file.
 - Example: use `exec` with `head -n 10 some/file.txt | tee clipboard/snippet.txt`, then put `{{@clip:clipboard/snippet.txt}}` on its own line.
+- Tools like 'read_file' and 'web_fetch' can return native image content. Read visual resources directly when needed instead of relying on text descriptions.
 
-Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel."""
+Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel.
+IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST call the 'message' tool with the 'media' parameter. Do NOT use read_file to "send" a file — reading a file only shows its content to you, it does NOT deliver the file to the user. Example: message(content="Here is the file", media=["/path/to/file.png"])"""
 
     @staticmethod
     def _build_runtime_context(channel: str | None, chat_id: str | None) -> str:
@@ -181,7 +183,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
 
     def add_tool_result(
         self, messages: list[dict[str, Any]],
-        tool_call_id: str, tool_name: str, result: str,
+        tool_call_id: str, tool_name: str, result: Any,
     ) -> list[dict[str, Any]]:
         """Add a tool result to the message list."""
         content = self._truncate_tool_result(result)
