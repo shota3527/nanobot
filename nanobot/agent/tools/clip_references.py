@@ -16,16 +16,58 @@ _CLIP_REF_LINE_RE = re.compile(
 )
 
 
+class ClipboardExpansionErrorArgs(dict):
+    """Dictionary-like tool arguments carrying a precomputed expansion error."""
+
+    def __init__(self, original_arguments: dict[str, Any], error: str):
+        super().__init__(original_arguments)
+        self.error = error
+
+
 @dataclass(frozen=True)
 class ClipboardReferenceExpander:
     """Expand standalone `{@clip:...}` lines using workspace-aware path rules."""
 
     workspace: Path
     restrict_to_workspace: bool = False
+    _TOOL_CALL_ERROR_PREFIX = "Error expanding clipboard reference in tool arguments: "
 
-    def expand_tool_call(self, tool_call: Any) -> None:
-        """Expand placeholders in a tool call's arguments in place."""
-        tool_call.arguments = self.expand(tool_call.arguments)
+    def expand_tool_call(self, tool_call: Any) -> str | None:
+        """Expand placeholders in a tool call's arguments in place.
+
+        Returns an error string when expansion fails so callers can attach it
+        as a tool result without duplicating exception handling.
+        """
+        try:
+            tool_call.arguments = self.expand(tool_call.arguments)
+        except (FileNotFoundError, OSError, ValueError) as e:
+            error = f"{self._TOOL_CALL_ERROR_PREFIX}{e}"
+            logger.warning("Tool call argument expansion failed for {}: {}", tool_call.name, error)
+            return error
+        return None
+
+    def expand_message(self, message: str | None) -> str | None:
+        """Expand clipboard references in assistant message content.
+
+        If expansion fails, keep the original message unchanged.
+        """
+        if not message:
+            return message
+        try:
+            expanded = self.expand(message)
+        except (FileNotFoundError, OSError, ValueError):
+            return message
+        return expanded if isinstance(expanded, str) else message
+
+    def expand_response(self, response: Any) -> Any:
+        """Expand clipboard references in a response's message and tool calls."""
+        if hasattr(response, "content"):
+            response.content = self.expand_message(response.content)
+
+        for tool_call in getattr(response, "tool_calls", []):
+            if error := self.expand_tool_call(tool_call):
+                tool_call.arguments = ClipboardExpansionErrorArgs(tool_call.arguments, error)
+        return response
 
     def expand(self, arguments: Any) -> Any:
         """Expand standalone `{@clip:...}` lines in each string value."""

@@ -4,17 +4,21 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from nanobot.agent.loop import AgentLoop
-from nanobot.agent.tools.clip_references import ClipboardReferenceExpander
+from nanobot.agent.tools.clip_references import ClipboardExpansionErrorArgs, ClipboardReferenceExpander
 from nanobot.providers.base import LLMResponse, ToolCallRequest
 
 
 def _make_loop(tmp_path: Path) -> AgentLoop:
     from nanobot.bus.queue import MessageBus
+    from nanobot.providers.base import GenerationSettings
 
     bus = MessageBus()
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
-    return AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model", memory_window=10)
+    provider.generation = GenerationSettings(max_tokens=0)
+    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(content="Done", tool_calls=[]))
+    provider.chat_stream_with_retry = AsyncMock(return_value=LLMResponse(content="Done", tool_calls=[]))
+    return AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
 
 
 def test_clipboard_reference_expander_replaces_nested_strings(tmp_path: Path) -> None:
@@ -97,6 +101,47 @@ def test_clipboard_reference_expander_tolerates_spaces_inside_marker(tmp_path: P
     assert expanded == {"text": "spaced marker"}
 
 
+def test_expand_response_wraps_failed_tool_call_without_changing_tool_name(tmp_path: Path) -> None:
+    expander = ClipboardReferenceExpander(workspace=tmp_path)
+    response = LLMResponse(
+        content="note\n{@clip:missing-message.txt}",
+        tool_calls=[
+            ToolCallRequest(
+                id="call1",
+                name="write_file",
+                arguments={"path": "out.txt", "content": "{@clip:missing.txt}"},
+            )
+        ],
+    )
+
+    expanded = expander.expand_response(response)
+
+    assert expanded is response
+    assert response.content == "note\n{@clip:missing-message.txt}"
+    assert response.tool_calls[0].name == "write_file"
+    assert isinstance(response.tool_calls[0].arguments, ClipboardExpansionErrorArgs)
+    assert response.tool_calls[0].arguments.error.startswith(
+        "Error expanding clipboard reference in tool arguments:"
+    )
+
+
+def test_expand_response_expands_message_when_available(tmp_path: Path) -> None:
+    expander = ClipboardReferenceExpander(workspace=tmp_path)
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    (notes_dir / "msg.txt").write_text("expanded message", encoding="utf-8")
+
+    response = LLMResponse(
+        content="Before\n{@clip:notes/msg.txt}\nafter",
+        tool_calls=[],
+    )
+
+    expanded = expander.expand_response(response)
+
+    assert expanded is response
+    assert response.content == "Before\nexpanded message\nafter"
+
+
 def test_clipboard_reference_expander_blocks_outside_workspace_when_restricted(tmp_path: Path) -> None:
     external = tmp_path.parent / f"{tmp_path.name}_blocked.txt"
     external.write_text("blocked", encoding="utf-8")
@@ -126,9 +171,9 @@ async def test_run_agent_loop_expands_clipboard_references_before_tool_execute(t
         LLMResponse(content="", tool_calls=[tool_call]),
         LLMResponse(content="Done", tool_calls=[]),
     ])
-    loop.provider.chat = AsyncMock(side_effect=lambda *a, **kw: next(calls))
+    loop.provider.chat_with_retry = AsyncMock(side_effect=lambda *a, **kw: next(calls))
     loop.tools.get_definitions = MagicMock(return_value=[])
-    loop.tools.execute = AsyncMock(return_value="ok")
+    loop.tools.execute = AsyncMock(side_effect=lambda name, params: getattr(params, "error", None) or "ok")
 
     final_content, _, messages = await loop._run_agent_loop([])
 
@@ -140,3 +185,50 @@ async def test_run_agent_loop_expands_clipboard_references_before_tool_execute(t
     assert messages[0]["tool_calls"][0]["function"]["arguments"] == (
         '{"path": "out.txt", "content": "Before\\nexpanded text\\nafter"}'
     )
+    assert messages[1]["content"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_run_agent_loop_adds_clipboard_expansion_failure_as_tool_result(tmp_path: Path) -> None:
+    loop = _make_loop(tmp_path)
+    tool_call = ToolCallRequest(
+        id="call1",
+        name="write_file",
+        arguments={"path": "out.txt", "content": "{@clip:missing.txt}"},
+    )
+    calls = iter([
+        LLMResponse(content="", tool_calls=[tool_call]),
+        LLMResponse(content="Done", tool_calls=[]),
+    ])
+    loop.provider.chat_with_retry = AsyncMock(side_effect=lambda *a, **kw: next(calls))
+    loop.tools.get_definitions = MagicMock(return_value=[])
+    loop.tools.execute = AsyncMock(side_effect=lambda name, params: getattr(params, "error", None) or "ok")
+
+    final_content, tools_used, messages = await loop._run_agent_loop([])
+
+    assert final_content == "Done"
+    assert tools_used == ["write_file"]
+    called_name, called_params = loop.tools.execute.await_args.args
+    assert called_name == "write_file"
+    assert isinstance(called_params, ClipboardExpansionErrorArgs)
+    assert messages[0]["tool_calls"][0]["function"]["name"] == "write_file"
+    assert messages[1]["content"].startswith(
+        "Error expanding clipboard reference in tool arguments:"
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_agent_loop_expands_final_message_content(tmp_path: Path) -> None:
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    (notes_dir / "reply.txt").write_text("expanded reply", encoding="utf-8")
+
+    loop = _make_loop(tmp_path)
+    response = LLMResponse(content="Reply\n{@clip:notes/reply.txt}", tool_calls=[])
+    loop.provider.chat_with_retry = AsyncMock(return_value=response)
+    loop.tools.get_definitions = MagicMock(return_value=[])
+
+    final_content, _, messages = await loop._run_agent_loop([])
+
+    assert final_content == "Reply\nexpanded reply"
+    assert messages[0]["content"] == "Reply\nexpanded reply"

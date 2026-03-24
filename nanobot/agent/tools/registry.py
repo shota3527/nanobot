@@ -3,6 +3,7 @@
 from typing import Any
 
 from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.clip_references import ClipboardExpansionErrorArgs
 
 
 class ToolRegistry:
@@ -38,6 +39,9 @@ class ToolRegistry:
     async def execute(self, name: str, params: dict[str, Any]) -> Any:
         """Execute a tool by name with given parameters."""
         _HINT = "\n\n[Analyze the error above and try a different approach.]"
+
+        if isinstance(params, ClipboardExpansionErrorArgs):
+            return params.error
 
         tool = self._tools.get(name)
         if not tool:

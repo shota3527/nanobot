@@ -131,6 +131,7 @@ class SubagentManager:
                     tools=tools.get_definitions(),
                     model=self.model,
                 )
+                response = self._clipboard_expander.expand_response(response)
 
                 if response.has_tool_calls:
                     tool_call_dicts = [
@@ -146,23 +147,6 @@ class SubagentManager:
 
                     # Execute tools
                     for tool_call in response.tool_calls:
-                        try:
-                            self._clipboard_expander.expand_tool_call(tool_call)
-                        except (FileNotFoundError, OSError, ValueError) as e:
-                            error = f"Error expanding clipboard reference in tool arguments: {e}"
-                            logger.warning(
-                                "Subagent [{}] tool argument expansion failed for {}: {}",
-                                task_id,
-                                tool_call.name,
-                                error,
-                            )
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "name": tool_call.name,
-                                "content": error,
-                            })
-                            continue
                         args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                         logger.debug("Subagent [{}] executing: {} with arguments: {}", task_id, tool_call.name, args_str)
                         result = await tools.execute(tool_call.name, tool_call.arguments)
