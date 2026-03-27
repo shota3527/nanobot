@@ -24,8 +24,14 @@ class ContextBuilder:
         "\n\n[Tool output truncated in the middle. You are seeing the beginning and end only. If the missing section matters, read or fetch a smaller portion.]\n\n"
     )
 
-    def __init__(self, workspace: Path, tool_result_max_bytes: int | None = None):
+    def __init__(
+        self,
+        workspace: Path,
+        timezone: str | None = None,
+        tool_result_max_bytes: int | None = None,
+    ):
         self.workspace = workspace
+        self.timezone = timezone
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
         self.tool_result_max_bytes = tool_result_max_bytes
@@ -109,9 +115,11 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
 IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST call the 'message' tool with the 'media' parameter. Do NOT use read_file to "send" a file — reading a file only shows its content to you, it does NOT deliver the file to the user. Example: message(content="Here is the file", media=["/path/to/file.png"])"""
 
     @staticmethod
-    def _build_runtime_context(channel: str | None, chat_id: str | None) -> str:
+    def _build_runtime_context(
+        channel: str | None, chat_id: str | None, timezone: str | None = None,
+    ) -> str:
         """Build untrusted runtime metadata block for injection before the user message."""
-        lines = [f"Current Time: {current_time_str()}"]
+        lines = [f"Current Time: {current_time_str(timezone)}"]
         if channel and chat_id:
             lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
         return ContextBuilder._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines)
@@ -139,7 +147,7 @@ IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST
         current_role: str = "user",
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
-        runtime_ctx = self._build_runtime_context(channel, chat_id)
+        runtime_ctx = self._build_runtime_context(channel, chat_id, self.timezone)
         user_content = self._build_user_content(current_message, media)
 
         # Merge runtime context and user content into a single user message
@@ -190,8 +198,10 @@ IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST
         messages.append({"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": content})
         return messages
 
-    def _truncate_tool_result(self, result: str) -> str:
+    def _truncate_tool_result(self, result: Any) -> Any:
         """Trim oversized tool output by keeping byte-limited head/tail excerpts."""
+        if not isinstance(result, str):
+            return result
         limit = self.tool_result_max_bytes
         size = len(result.encode("utf-8"))
         if not limit or limit <= 0 or size <= limit:
