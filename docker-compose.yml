@@ -2,16 +2,15 @@ x-common-config: &common-config
   build:
     context: .
     dockerfile: Dockerfile
-  user: "1000:1000"
-  init: true
+  volumes:
+    - ~/.nanobot:/home/nanobot/.nanobot
   cap_drop:
     - ALL
+  cap_add:
+    - SYS_ADMIN
   security_opt:
-    - no-new-privileges:true
-  volumes:
-    - ~/nanobot_workspace:/home/nanobot/.nanobot
-    - ~/nanobot_workspace/media:/home/nanobot/.nanobot/workspace/media
-    - ~/nanobot_workspace/history:/home/nanobot/.nanobot/workspace/history
+    - apparmor=unconfined
+    - seccomp=unconfined
 
 services:
   nanobot-gateway:
@@ -21,6 +20,31 @@ services:
     restart: unless-stopped
     ports:
       - 18790:18790
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  nanobot-api:
+    container_name: nanobot-api
+    <<: *common-config
+    command:
+      ["serve", "--host", "0.0.0.0", "-w", "/home/nanobot/.nanobot/api-workspace"]
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:8900:8900
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
 
   nanobot-cli:
     <<: *common-config
