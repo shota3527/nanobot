@@ -1,7 +1,7 @@
 x-common-config: &common-config
   build:
     context: .
-    dockerfile: Dockerfile.hardened
+    dockerfile: Dockerfile.my
   user: "1000:1000"
   init: true
   read_only: true
@@ -15,7 +15,7 @@ x-common-config: &common-config
     - no-new-privileges:true
 services:
   nanobot-gateway:
-    container_name: nanobot-gateway-hardened
+    container_name: nanobot-gateway-my
     <<: *common-config
     command: ["gateway"]
     restart: unless-stopped
@@ -31,7 +31,7 @@ services:
           memory: 1G
 
   nanobot-api:
-    container_name: nanobot-api-hardened
+    container_name: nanobot-api-my
     <<: *common-config
     command:
       ["serve", "--host", "0.0.0.0", "-w", "/home/nanobot/.nanobot/api-workspace"]

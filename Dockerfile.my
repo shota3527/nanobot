@@ -1,8 +1,8 @@
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
-# Install Node.js 20 for the WhatsApp bridge. This hardened image intentionally
-# omits bubblewrap because the compose profile below disables shell exec instead
-# of granting SYS_ADMIN to support nested sandboxing.
+# Install Node.js 20 for the WhatsApp bridge. This local image intentionally
+# omits bubblewrap and keeps Docker-level privileges low; nanobot tool behavior
+# stays controlled by ~/nanobot_workspace/config.json.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client && \
     mkdir -p /etc/apt/keyrings && \
@@ -39,8 +39,8 @@ RUN useradd -m -u 1000 -s /bin/bash nanobot && \
     mkdir -p /home/nanobot/.nanobot && \
     chown -R nanobot:nanobot /home/nanobot /app
 
-COPY docker/hardened-entrypoint.sh /usr/local/bin/hardened-entrypoint.sh
-RUN sed -i 's/\r$//' /usr/local/bin/hardened-entrypoint.sh && chmod +x /usr/local/bin/hardened-entrypoint.sh
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
 
 USER nanobot
 ENV HOME=/home/nanobot
@@ -48,5 +48,5 @@ ENV HOME=/home/nanobot
 # Gateway default port
 EXPOSE 18790
 
-ENTRYPOINT ["hardened-entrypoint.sh"]
+ENTRYPOINT ["entrypoint.sh"]
 CMD ["status"]
